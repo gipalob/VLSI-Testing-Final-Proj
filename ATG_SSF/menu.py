@@ -1,4 +1,5 @@
 from .helpers.proc_netlist import process_netlist
+from .helpers.fault_collapse import Faults
 from .helpers.helpers import color as c
 
 def get_file_lines(fname: str) -> list[str]:
@@ -11,7 +12,7 @@ def get_file_lines(fname: str) -> list[str]:
         ]
     except Exception as e:
         print(f"{c.FAIL}Error reading file '{fname}': {e}{c.ENDC}")
-        return []
+        exit(1)
     return file_lines
 
 
@@ -22,11 +23,12 @@ class Menu:
         self.file_lines = get_file_lines(fname)
         if not self.file_lines:
             print(f"{c.FAIL}File '{fname}' is empty.{c.ENDC}")
-            return
+            exit(1)
         self.gates = None
         self.graph = None
         self.en_feat = False
         self.vis = None
+        self.fault_list = None
 
 
     def en_features(self):
@@ -40,8 +42,14 @@ class Menu:
                 print(f"{c.FAIL}Error: {e}{c.ENDC}")
                 print(f"{c.FAIL}Keeping additional features disabled.{c.ENDC}")
                 self.en_feat = False
+        elif choice == 'n':
+            self.en_feat = False
+            print(f"{c.WARNING}Additional features disabled.{c.ENDC}")
         elif choice == 'info':
             self.features(info = True)
+        else: 
+            print(f"{c.WARNING}Invalid choice.{c.ENDC}")
+            self.en_features()
         
     def features(self, *args, **kwargs):
         if kwargs.get("info", False) == True:
@@ -73,7 +81,7 @@ class Menu:
                 "6": "Generate tests (Boolean Satisfaibility)",
                 "7": "Exit"
             }
-            
+            print(f"\n{c.HEADER}{c.BOLD}Main Menu:{c.ENDC}")
             [print(f"{c.OKCYAN}[{k}]: {c.BOLD}{v}{c.ENDC}") for k, v in menu_elements.items()]
             print(f"{c.BOLD}Selection: {c.ENDC}", end="")
             choice = input().strip()
@@ -91,16 +99,22 @@ class Menu:
             print(f"\t{c.OKGREEN}Netlist processed successfully.{c.ENDC}")
             
             if self.en_feat:
-                from .helpers.helpers import Visualize
-                self.vis = Visualize(self.gates, self.graph.edge_list)
-                
+                from .helpers.helpers import Visualize                
                 print(f"\t{c.OKGREEN}Would you like to view the circuit's graph visualization? ('Y' / 'N'): {c.ENDC}", end="")
                 v_choice = input().strip().lower()
                 if v_choice == 'y':
+                    self.vis = Visualize(self.gates, self.graph.edge_list)
                     self.vis.vis_circuit()
                         
         elif choice == 1:
-            pass
+            if (self.gates and self.graph):
+                if (not self.fault_list):
+                    self.fault_list = Faults(self.gates, self.graph)
+                    
+                self.fault_list.collapse()
+            else:
+                print(f"{c.FAIL}Please process the netlist first (Option 0).{c.ENDC}")
+                
         elif choice == 2:
             pass
         elif choice == 3:

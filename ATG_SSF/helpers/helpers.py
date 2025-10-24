@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict, Tuple, NamedTuple
 # Hold helper data structures used across the project
 
 class color:
@@ -14,6 +14,22 @@ class color:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+
+    
+class ControllingInversionVals:
+    """
+    Pre-define controlling values / inversions for gates
+    """
+    class ci(NamedTuple):
+        c: int  # controlling value
+        i: int  # inversion value
+        
+    AND = ci(c=0, i=0)
+    NAND = ci(c=1, i=1)
+    OR = ci(c=1, i=0)
+    NOR = ci(c=0, i=1)
+    XOR = ci(c=1, i=1)
+
 
 
 class Graph:
@@ -79,12 +95,18 @@ class Visualize:
         import networkx as nx
         
         #color map must be in order presented by graph nodes
-        self.color_map = [
-            'lightgreen' if self.gates[node]['type'] == 'PI' else
-            'lightblue'
-            for node in self.graph.nodes()
-        ]
+        if not len(self.color_map):
+            self.color_map = [
+                'lightgreen' if (typ:= self.gates[node]['type']) == 'PI' else
+                'lightblue' if typ == "OR" else
+                'blue' if typ == "NOR" else
+                'red' if typ == "AND" else
+                'coral' if typ == "NAND" else
+                'pink' if typ == "XOR" else
+                'lightgrey'  # default
+                for node in self.graph.nodes()
+            ]
 
-        nx.draw(self.graph, self.pos, node_color=self.color_map, with_labels=True, arrows=True)
+        nx.draw(self.graph, self.pos, node_color=self.color_map, node_size=1000, with_labels=True, arrows=True)
         plt.show()
         

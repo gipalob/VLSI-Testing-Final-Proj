@@ -24,7 +24,7 @@ mgat                                                        $...Primary output
                                                                $...Primary output
 $
 $
-$                   Output           Type             Inputs…
+$                   Output           Type             Inputs
 $                - - - - - - - -     - - - - - - -      - - - - - - - - - 
                    fgat                 AND            agat       bgat
                    jgat                 NOR            fgat       cgat

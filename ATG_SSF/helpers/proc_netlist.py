@@ -2,7 +2,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from typing import Tuple, Dict
 from .helpers import Graph
-
+import json
 def decomp_file(file_lines: list[str]):
     """
     Decomposes the netlist file lines into a gate list, with circuit level 
@@ -23,7 +23,7 @@ def decomp_file(file_lines: list[str]):
     )
     gates = {
         p[0]: {
-            "type": p[1],
+            "type": p[1].upper(),
             "inputs": p[2:],
             "level": None
         }
@@ -54,8 +54,8 @@ def decomp_file(file_lines: list[str]):
 
     [gates[po].update({"level": max_level}) for po in POs]
     
-    # Sort by level & return
-    return dict(sorted(gates.items(), key=lambda item: item[1]["level"]))
+    # Sort first by level, then alphabetically & return
+    return dict(sorted(gates.items(), key=lambda item: (item[1]["level"], item[0])))
 
     
 def get_edge_list(gates: Dict[str, dict]) -> list[Tuple[str, str]]:
