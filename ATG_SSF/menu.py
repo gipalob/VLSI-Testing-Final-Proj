@@ -1,6 +1,7 @@
 from .helpers.proc_netlist import process_netlist
 from .helpers.fault_collapse import Faults
 from .helpers.helpers import color as c
+import os
 
 def get_file_lines(fname: str) -> list[str]:
     file_lines = []
@@ -29,6 +30,14 @@ class Menu:
         self.en_feat = False
         self.vis = None
         self.fault_list = None
+        
+    def clear(self):
+        # windows
+        if os.name == 'nt':
+            _ = os.system('cls')
+        # macOS/Linux
+        else:
+            _ = os.system('clear')
 
 
     def en_features(self):
@@ -53,7 +62,7 @@ class Menu:
         
     def features(self, *args, **kwargs):
         if kwargs.get("info", False) == True:
-            print("To use additional features, you must pip install -r add_feat.txt")
+            print("To use additional features, you must pip install -r ./ATG_SSF/requirements.txt")
             print("Additional features include:")
             print("\t- Circuit Graph Visualization")
             
@@ -64,7 +73,7 @@ class Menu:
                 import networkx as nx
                 print(f"{c.OKGREEN}{c.BOLD}Additional features enabled.{c.ENDC}")
             except ImportError as e:
-                raise ImportError("Required packages for additional features not found. Please install 'matplotlib' and 'networkx'.") from e
+                raise ImportError("Required packages for additional features not found. Please pip install -r ./ATG_SSF/requirements.txt.") from e
         
     def print_menu(self):
         #loop until valid input is given
@@ -82,17 +91,24 @@ class Menu:
                 "7": "Exit"
             }
             print(f"\n{c.HEADER}{c.BOLD}Main Menu:{c.ENDC}")
-            [print(f"{c.OKCYAN}[{k}]: {c.BOLD}{v}{c.ENDC}") for k, v in menu_elements.items()]
+            [
+                print(f"{c.OKCYAN}[{k}]: {c.BOLD}{v}{c.ENDC}") 
+                for k, v in menu_elements.items()
+            ]
             print(f"{c.BOLD}Selection: {c.ENDC}", end="")
             choice = input().strip()
             
             #input validation
+            # clear menu after sel made
+            # self.clear()
             try:
                 choice = int(choice)
                 assert choice < 8 and choice >= 0
             except ValueError:
-                print(f"{c.FAIL}Invalid selection.{c.ENDC}")
+                print(f"{c.FAIL}Invalid selection: {choice}{c.ENDC}")
                 choice = -1
+        
+        
         
         if choice == 0:
             self.gates, self.graph = process_netlist(self.file_lines)
@@ -112,11 +128,16 @@ class Menu:
                     self.fault_list = Faults(self.gates, self.graph)
                     
                 self.fault_list.collapse()
+                print(f"\t{c.OKGREEN}Fault collapsing completed successfully.{c.ENDC}")
             else:
                 print(f"{c.FAIL}Please process the netlist first (Option 0).{c.ENDC}")
                 
         elif choice == 2:
-            pass
+            if self.fault_list:
+                self.fault_list.print_fault_classes()
+            else:
+                print(f"{c.FAIL}Please perform fault collapsing first (Option 1).{c.ENDC}")
+            
         elif choice == 3:
             pass
         elif choice == 4:

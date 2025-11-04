@@ -68,6 +68,24 @@ class Faults:
                     
         #debug print fault count
         # print(f"{json.dumps(self.fault_list, indent=4)}")
-        # print(f"fault count: {sum(len(v) for v in self.fault_list.values())}")
+        print(f"fault count: {sum(len(v) for v in self.fault_list.values())}")
+        
+    def print_fault_classes(self, *args, **kwargs):
+        """
+        Optional kwargs: 
+            vis: Visualize class instance to display fault classes on graph
+        """
+        print(f"{color.HEADER}{color.BOLD}Fault classes after collapsing:\n")
+        print(f"Gate\t| Fault(s)")
+        print(f"{'-'*25}{color.ENDC}")
+        [
+            print(f"{color.OKGREEN}{gate}{' '*(8-len(gate))}{color.HEADER}{color.BOLD}|{color.ENDC} {', '.join('s-a-' + str(f) for f in faults) if faults else 'None'}")
+            for gate, faults in self.fault_list.items()
+        ]
+        if kwargs.get("vis", None): 
+            print(f"{color.OKCYAN}{color.BOLD}Would you like to view the fault classes on the graph? (Y/N) {color.ENDC}")
+            choice = input().strip().lower()
+            if choice == 'y':
+                pass
 
         

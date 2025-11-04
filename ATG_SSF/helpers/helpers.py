@@ -25,9 +25,9 @@ class ControllingInversionVals:
         i: int  # inversion value
         
     AND = ci(c=0, i=0)
-    NAND = ci(c=1, i=1)
+    NAND = ci(c=0, i=1)
     OR = ci(c=1, i=0)
-    NOR = ci(c=0, i=1)
+    NOR = ci(c=1, i=1)
     XOR = ci(c=1, i=1)
 
 
