@@ -139,7 +139,11 @@ class Menu:
                 print(f"{c.FAIL}Please perform fault collapsing first (Option 1).{c.ENDC}")
             
         elif choice == 3:
-            pass
+            if (self.gates and self.graph and self.fault_list):
+                from .helpers.sim import Simulate
+                Simulate(self.gates, self.graph, self.fault_list, self.en_feat)
+            else:
+                print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")
         elif choice == 4:
             pass
         elif choice == 5:
