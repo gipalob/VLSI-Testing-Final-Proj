@@ -1,5 +1,6 @@
 from .helpers.proc_netlist import process_netlist
 from .helpers.fault_collapse import Faults
+from .helpers.sim import Simulate
 from .helpers.helpers import color as c
 import os
 
@@ -113,6 +114,8 @@ class Menu:
         if choice == 0:
             self.gates, self.graph = process_netlist(self.file_lines)
             print(f"\t{c.OKGREEN}Netlist processed successfully.{c.ENDC}")
+            import json
+            print(json.dumps(self.gates, indent = 2))
             
             if self.en_feat:
                 from .helpers.helpers import Visualize                
@@ -140,8 +143,13 @@ class Menu:
             
         elif choice == 3:
             if (self.gates and self.graph and self.fault_list):
-                from .helpers.sim import Simulate
-                Simulate(self.gates, self.graph, self.fault_list, self.en_feat)
+                self.sim = Simulate(self.gates, self.graph, self.fault_list, self.en_feat)
+               
+                print(f"\t{c.OKGREEN}Would you like to view the simulation results? ('Y' / 'N'): {c.ENDC}", end="")
+                v_choice = input().strip().lower()
+                if v_choice == 'y':
+                    self.sim.print_sim()
+                    
             else:
                 print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")
         elif choice == 4:

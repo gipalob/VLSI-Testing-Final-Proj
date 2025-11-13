@@ -1,7 +1,7 @@
 from .fault_collapse import Faults
-from .helpers import color
+from .helpers import color, Graph, GateOps
 class Simulate:
-    def __init__(self, gates, graph, faults: Faults, en_feat):
+    def __init__(self, gates, graph: Graph, faults: Faults, en_feat):
         self.gates = gates
         self.graph = graph
         self.faults = faults
@@ -9,6 +9,7 @@ class Simulate:
         
         self.chosen_inps = {}
         self.chosen_faults = {}
+        self.sim_vals = {}
         
         self.init_print()
         self.simulate()
@@ -27,11 +28,11 @@ class Simulate:
             print(f"{color.HEADER}{color.BOLD}Chosen fault #s:{color.ENDC}")
             print(f"\t{inp}")
 
-            # this one's pretty bad lol
+            # this one's pretty bad lol. not integer addressed, actually maps to {gate: fault}
             # this is sooooooooooooooo python 
             self.chosen_faults = dict(
                 {
-                    idx: (gate, f)
+                    idx: (gate, int(f))
                     for idx, (gate, faults) in enumerate(self.faults.fault_list.items()) 
                     for f in faults
                     if faults
@@ -59,9 +60,103 @@ class Simulate:
             in self.chosen_inps.items()
         ]
         
-        
+    def _get_gates(self, inp):
+        """
+        Get gates connected to a particular input
+        """    
+        return [
+            gate 
+            for gate, gdata 
+            in self.gates.items() 
+            if inp in gdata["inputs"]
+        ]
+    
     def simulate(self):
-        PO_ct = sum(1 for g in self.gates.values() if g["level"] == max(g["level"] for g in self.gates.values()))
-        PO_vals = {}
-        while len(PO_vals) != PO_ct:
-            pass
+        """
+        Event-Driven simulation of circuit.
+        """        
+        self.sim_vals = {gate_name: 'x' for gate_name in self.gates.keys()}
+        
+        # Init PI vals
+        [self.sim_vals.update({pi: self.chosen_inps[pi]}) for pi in self.chosen_inps.keys()]
+        
+        # Make sure we assert PI to chosen faults (if any)
+        if len(self.chosen_faults) > 0:
+            for gate in self.sim_vals.keys():
+                if self.gates[gate]["type"] == "PI" and gate in self.chosen_faults:
+                    fault_val = self.chosen_faults[gate]
+                    print(f"{color.WARNING}{color.BOLD}Injecting fault on PI '{gate}': forcing output to {fault_val}{color.ENDC}")
+                    self.sim_vals[gate] = ("fault", fault_val)
+        
+        gate_list = [gate for gate in self.gates.keys()]
+        current = 0 # Start with PI 0
+    
+        while 'x' in self.sim_vals.values():
+            # Make sure we don't over-index
+            if current >= len(gate_list):
+                # There are still undetermined values, find next 'x' gate
+                for g, v in self.sim_vals.items():
+                    if v == 'x':
+                        current = gate_list.index(g)
+                        break
+                continue
+                
+            gate = gate_list[current]
+            gate_dat = self.gates[gate]
+            output = self.graph.get_neighbors(gate)
+            if self.sim_vals[gate] != 'x':
+                # Gate already evaluated, move to next gate
+                current = gate_list.index(output[0]) if output else current + 1
+                continue
+            if gate_dat["type"] == "PI":
+                self.sim_vals[gate] = self.chosen_inps[gate]
+                current = gate_list.index(output[0]) if output else current + 1 # Greedily move through gates
+                continue
+            else: 
+                # Get current gate's input gates
+                inputs = {inp: self.sim_vals[inp] for inp in gate_dat["inputs"]}
+                if 'x' in inputs.values():
+                    for inp_name, inp_val in inputs.items():
+                        if inp_val == 'x':
+                            # Cannot evaluate current gate, first must justify undetermined input
+                            current = gate_list.index(inp_name)
+                            break
+                    continue
+                else:
+                    # All inputs known, evaluate gate
+                    # This method also supports n-input gates :) 
+                    gate_func = getattr(GateOps, gate_dat["type"], None)
+                    
+                    if gate_func is None:
+                        raise ValueError(f"Unsupported gate type '{gate_dat['type']}' for simulation.")
+                    
+                    self.sim_vals[gate] = gate_func(inputs.values())
+                    
+                    # Check if fault is to be injected here
+                    if gate in self.chosen_faults:
+                        fault_val = self.chosen_faults[gate]
+                        print(f"{color.WARNING}{color.BOLD}Injecting fault on gate '{gate}': forcing output to {fault_val}{color.ENDC}")
+                        self.sim_vals[gate] = ("fault", fault_val)
+                        
+                    current = gate_list.index(output[0]) if output else current + 1 # Greedily move through gates
+        
+    def print_sim(self):
+        """
+        Print simulation results
+        """
+        print(f"\n{color.HEADER}{color.BOLD}Simulation Results:{color.ENDC}\n")
+        print(f"{'Gate':<10} | {'Value':<10}")
+        print(f"{'-'*25}")
+        for gate, val in self.sim_vals.items():
+            if isinstance(val, tuple) and val[0] == "fault":
+                print(f"{color.FAIL}{gate:<10} | {val[1]:<10} (fault injected){color.ENDC}")
+            else:
+                print(f"{gate:<10} | {val:<10}")
+                    
+                    
+                    
+                
+
+            
+            
+            

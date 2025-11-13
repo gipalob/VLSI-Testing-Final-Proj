@@ -29,6 +29,17 @@ class ControllingInversionVals:
     OR = ci(c=1, i=0)
     NOR = ci(c=1, i=1)
     XOR = ci(c=1, i=1)
+    
+class GateOps:
+    """
+    Define operations for gate types
+    """
+    
+    AND = lambda inputs: int(all(inputs))
+    OR = lambda inputs: int(any(inputs))
+    NAND = lambda inputs: int(not all(inputs))
+    NOR = lambda inputs: int(not any(inputs))
+    XOR = lambda inputs: int(sum(inputs) % 2)
 
 
 
