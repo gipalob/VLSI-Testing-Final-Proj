@@ -137,7 +137,7 @@ class Menu:
                 
         elif choice == 2:
             if self.fault_list:
-                self.fault_list.print_fault_classes()
+                self.fault_list.print_fault_classes(show_undetectable = True, vis = self.vis)
             else:
                 print(f"{c.FAIL}Please perform fault collapsing first (Option 1).{c.ENDC}")
             

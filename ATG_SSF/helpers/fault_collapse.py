@@ -15,6 +15,7 @@ class Faults:
             # else [] 
             for k in gates.keys()
         }
+        self.undetectable_faults = {k: [] for k in gates.keys()}
     
     def collapse(self):
         # Start at PIs
@@ -51,6 +52,7 @@ class Faults:
 
                     if not neighbor_fanout:
                         self.fault_list[inp].remove(cXORi)
+                        self.undetectable_faults[inp].append(cXORi)
                         # print(f"Removed fault {cXORi} from line '{inp}' (gate '{gate}')") # Debug print
                         
             # Dominant fault collapsing
@@ -65,6 +67,7 @@ class Faults:
                         if not (next_inp < len(inps) and NOTcXORi in self.fault_list[inps[next_inp]]):
                             continue 
                     self.fault_list[inp].remove(NOTcXORi)
+                    self.undetectable_faults[inp].append(NOTcXORi)
                     
         #debug print fault count
         # print(f"{json.dumps(self.fault_list, indent=4)}")
@@ -94,8 +97,17 @@ class Faults:
                 print(f"{color.ENDC}", end="")
             elif not indices:
                 print(f"{color.OKGREEN}{gate}{' '*(8-len(gate))}{color.HEADER}{color.BOLD}|{color.ENDC} {', '.join('s-a-' + str(f) for f in faults) if faults else 'None'}")
+        
+        if kwargs.get("show_undetectable", False):
+            print(f"{color.ENDC}\n{color.BOLD}{color.HEADER}Would you like to view the list of undetectable faults? (Y/N) {color.ENDC}")
+            if input().strip().lower() == 'y':
+                print(f"{color.HEADER}{color.BOLD}\nUndetectable Faults:\n{color.ENDC}")
+                print(f"{color.BOLD}Gate\t| Undetectable Fault(s){color.ENDC}")
+                print(f"{'-'*35}")
+                for gate, faults in self.undetectable_faults.items():
+                    print(f"{color.OKGREEN}{gate}{' '*(8-len(gate))}{color.HEADER}{color.BOLD}|{color.ENDC} {', '.join('s-a-' + str(f) for f in faults) if faults else 'None'}")
+                print(f"{color.ENDC}")
                 
-            
         if kwargs.get("vis", None): 
             print(f"{color.OKCYAN}{color.BOLD}Would you like to view the fault classes on the graph? (Y/N) {color.ENDC}")
             choice = input().strip().lower()
