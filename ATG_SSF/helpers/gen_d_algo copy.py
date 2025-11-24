@@ -16,7 +16,6 @@ class DAlgo_Gen:
         self.gates = gates
         self.graph = graph
         self.PIs = [k for k, v in gates.items() if v["type"] == "PI"]
-        self.POs = [k for k, v in gates.items() if v["level"] == max(g["level"] for g in gates.values())]
         
         print(f"{c.BOLD}{c.HEADER}Select an option for D-Algorithm test generation:{c.ENDC}")
         print(f"{c.OKCYAN}", end="")
@@ -63,7 +62,7 @@ class DAlgo_Gen:
             else:
                 chosen = avail[int(inp)]
         
-        chosen_fault = (chosen, self.fault.fault_list[chosen])
+        chosen_fault = {chosen: self.fault.fault_list[chosen]}
         self.d_algorithm(chosen_fault=chosen_fault)
         
     
@@ -72,7 +71,7 @@ class DAlgo_Gen:
         fault_vectors = {}
         for gate, faults in self.fault.fault_list.items():
             for f in faults:
-                chosen_fault = (gate, f)
+                chosen_fault = {gate: f}
                 print(f"{c.HEADER}{c.BOLD}Generating test vector for fault s-a-{f} at gate {gate}:{c.ENDC}")
                 fault_vectors[(gate, f)] = self.d_algorithm(chosen_fault=chosen_fault)
                 
@@ -95,72 +94,78 @@ class DAlgo_Gen:
         Run a D-algorithm for a fault. 
         Only runs on a single fault; matching of generated vectors to faults will be handled by callee
         """
-        chosen_fault = kwargs.get("chosen_fault", (None, None))
-        chosen_inps = kwargs.get("chosen_inps", None)
+        chosen_fault = kwargs.get("chosen_fault", {})
+        chosen_inps = kwargs.get("chosen_inps", {})
         
-        circuit_vals = {gate_name: 'x' for gate_name in self.gates.keys()}
-
+        if not chosen_fault and not chosen_inps:
+            raise ValueError("Either 'chosen_fault' or 'chosen_inps' must be provided to run D-Algorithm.")
         
+        try:
+            assert isinstance(chosen_fault, dict)
+        except:
+            raise ValueError("'chosen_fault' must be a dictionary mapping gates to faults.")
+        try:
+            assert isinstance(chosen_inps, dict)
+        except:
+            raise ValueError("'chosen_fault' must be a dictionary mapping gates to faults.")
         
-        def justify(line, val):
+        circuit_vals = {gate: 'x' for gate in self.gates.keys()}
+        solved = False
+        gate_list = [gate for gate in self.gates.keys()]
+        idx = -1
+        
+        for pi, val in chosen_inps.items():
+            circuit_vals[pi] = val
+        
+        # Start evaluation at the first gate with an induced fault
+        for gate in gate_list:
+            if gate in chosen_fault.keys():
+                idx = gate_list.index(gate)
+                break
+        if idx == -1:
+            idx = 0
+        
+        def justify(gate, fault, targ) -> Tuple[list, bool]:
             """
-            Justify function mimicking algorithm from pg 184 of AM book (ISBN: 0-7803-1062-4)
+            Justify a fault at a given gate
             """
-            if line in self.PIs:
-                return 
-            c, i = getattr(ci, self.gates[line]["type"])
-            val_inv = int(val ^ i)
-            if (val_inv == (not c)): 
-                for inp in self.gates[line]["inputs"]:
-                    justify(inp, val_inv)
-            else: 
-                # "Select one input (j) of l"
-                for inp in self.gates[line]["inputs"]:
-                    inp_val = circuit_vals[inp]
-                    if inp_val == 'x':
-                        circuit_vals[inp] = val_inv
-                        justify(inp, val_inv)
-                        break
-                    
-        def propagate(line, err):
-            """
-            Propagate function mimicking algorithm from pg 185 of AM book (ISBN: 0-7803-1062-4)
-            Vs justify, in which 'line' is an output, here 'line' is an input
-            """
-            if line in self.POs:
-                return
-            if line in self.PIs: #Isn't apportioned for in og algorithm- but, in this code, this fn may get PIs. How do we handle?
-                return
-            k = self.graph.get_neighbors(line)
-            c, i = getattr(ci, self.gates[line]["type"])
-            # "For every input j of k other than l"
-            for fanout in k:
-                for inp in self.gates[fanout]["inputs"]:
-                    if inp == line:
+            if fault:
+                targ = not fault # We need to justify the opposite value to activate the fault
+            gate_type = self.gates[gate]["type"]
+            inps = self.gates[gate]["inputs"]
+            
+            # Determine blend of inputs to achieve target output
+            ci_vals = getattr(ci, gate_type, None)
+            op_func = getattr(ops, gate_type, None)
+            if ci_vals is None or op_func is None:
+                raise ValueError(f"Unsupported gate type '{gate_type}' for justification.")
+            c, i = ci_vals
+            
+            
+            for inp in inps:
+                if circuit_vals[inp] == 'x':
+                    res = justify(inp, None)
+                            
+        found_faults = []
+        test_vectors = [{}]                  
+        
+        while not solved:
+            curGate = gate_list[idx]
+            
+            if curGate in chosen_fault.keys():
+                circuit_vals[curGate] = ("s-a", chosen_fault[curGate])
+                res = justify(curGate, chosen_fault[curGate], None)
+                if res[0][0] == "PI":
+                    neighbors = self.graph.get_neighbors(curGate)
+                    if neighbors:
+                        [self.d_front.append(n) for n in neighbors if n not in self.d_front]
+            else:
+                for inp in self.gates[curGate]["inputs"]:
+                    if circuit_vals[inp] == 'x':
                         continue
-                    inp_val = circuit_vals[inp]
-                    if inp_val == 'x':
-                        justify(inp, not c)
-                propagate(fanout, err ^ i)
-                
-        # Start D-Algorithm
-        # assumedly, below initializes d-frontier?
-        # if imply_and_check() == FAILURE then return FAILURE
-        
-        if chosen_fault[0] not in self.POs:
-            if not len(self.d_front):
-                return None
-            # select an untried gate from d-front
-            c, i = getattr(ci, self.gates[self.d_front[0]]["type"])
-            
-            #assign !c to every input of G with value x
-            # if d-alg = success then treturn success
-            # repeat until all gates in d-front have been tried
-            
-        #then do j-front
-            
-                
-            
+                    elif "s-a" in circuit_vals[inp]:
+                        # We need to justify current gate such that fault is propagated
+                        
                         
                         
             
