@@ -4,9 +4,10 @@ from typing import Dict, Tuple, List
 
 import json
 class Faults:
-    def __init__(self, gates: Dict[str, dict], graph: Graph):
+    def __init__(self, gates: Dict[str, dict], graph: Graph, debug: bool = False):
         self.gates = gates
         self.graph = graph
+        self.debug = debug
         # Create initial fault list - faults only on PIs and POs
         max_level = max(g["level"] for g in gates.values())
         self.fault_list = {
@@ -19,7 +20,7 @@ class Faults:
     
     def collapse(self):
         # Start at PIs
-        # print(f"initial fault count: {sum(len(v) for v in self.fault_list.values())}") #debug print
+        if self.debug: print(f"initial fault count: {sum(len(v) for v in self.fault_list.values())}") #debug print
         for gate in self.gates:
             gtyp = self.gates[gate]["type"]
             if gtyp == "PI":
@@ -46,14 +47,14 @@ class Faults:
                             if tmp_c is None: raise ValueError(f"Unsupported gate type '{fanout_gate}' for fault collapsing.")
                             
                             if (cXORi != (tmp_c ^ tmp_i)):
-                                # print(f"Cannot remove fault {cXORi} from line '{inp}' (gate '{gate}') due to fanout to gate '{neighbor}'") # Debug print
+                                if self.debug: print(f"Cannot remove fault {cXORi} from line '{inp}' (gate '{gate}') due to fanout to gate '{neighbor}'") # Debug print
                                 neighbor_fanout = True
                                 break
 
                     if not neighbor_fanout:
                         self.fault_list[inp].remove(cXORi)
                         self.undetectable_faults[inp].append(cXORi)
-                        # print(f"Removed fault {cXORi} from line '{inp}' (gate '{gate}')") # Debug print
+                        if self.debug: print(f"Removed fault {cXORi} from line '{inp}' (gate '{gate}')") # Debug print
                         
             # Dominant fault collapsing
             NOTcXORi = (not c) ^ i
@@ -70,8 +71,8 @@ class Faults:
                     self.undetectable_faults[inp].append(NOTcXORi)
                     
         #debug print fault count
-        # print(f"{json.dumps(self.fault_list, indent=4)}")
-        # print(f"fault count: {sum(len(v) for v in self.fault_list.values())}")
+        if self.debug: print(f"{json.dumps(self.fault_list, indent=4)}")
+        if self.debug: print(f"fault count: {sum(len(v) for v in self.fault_list.values())}")
         
     def print_fault_classes(self, *args, **kwargs):
         """

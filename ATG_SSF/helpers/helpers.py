@@ -40,9 +40,78 @@ class GateOps:
     NAND = lambda inputs: int(not all(inputs))
     NOR = lambda inputs: int(not any(inputs))
     XOR = lambda inputs: int(sum(inputs) % 2)
-
-
-
+    
+class DGateOps:
+    @staticmethod
+    def AND(inputs):
+        if all(x in (1, 'D') for x in inputs):
+            if "D" in inputs:
+                return 'D'
+            else:
+                return 1
+        if all(x in (1, "D'") for x in inputs):
+            if "D'" in inputs:
+                return "D'"
+            else:
+                return 1
+        if 0 in inputs:
+            return 0
+        if "D'" in inputs:
+            return 0
+        return 'X'
+    
+    @staticmethod
+    def OR(inputs):
+        if 1 in inputs:
+            return 1
+        if 0 in inputs:
+            # All 0/D'
+            if all(x in (0, "D'") for x in inputs):
+                if "D'" in inputs:
+                    return "D'"
+                else:
+                    return 0
+            # All 0/D
+            if all(x in (0, "D") for x in inputs):
+                if "D" in inputs:
+                    return 'D'
+                else:
+                    return 0
+        return 'X'
+    
+    @staticmethod
+    def NOT(input_):
+        return {0:1, 1:0, 'D':"D'", "D'":'D', 'X':'X'}[input_]
+    
+    @staticmethod
+    def NAND(inputs):
+        return DGateOps.NOT(DGateOps.AND(inputs))
+    
+    @staticmethod
+    def NOR(inputs):
+        return DGateOps.NOT(DGateOps.OR(inputs))
+    
+    @staticmethod
+    def XOR(inputs):
+        # gf -> 'good' / 'faulty'
+        to_gf = {0: (0, 0), 1: (1, 1), 'D': (1, 0), "D'": (0, 1)}
+        g = 0
+        f = 0
+        for v in inputs:
+            gi, fi = to_gf[v]
+            g ^= gi
+            f ^= fi
+        if (g, f) == (1, 0):
+            return 'D'
+        elif (g, f) == (0, 1):
+            return "D'"
+        elif (g, f) == (0, 0):
+            return 0
+        elif (g, f) == (1, 1):
+            return 1
+        else:
+            return 'X' 
+    
 class Graph:
     def __init__(self, edge_list: list[tuple]):
         self.graph = {}

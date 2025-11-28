@@ -1,5 +1,6 @@
 from .helpers.proc_netlist import process_netlist
 from .helpers.fault_collapse import Faults
+from .helpers.gen_d_algo import DAlgorithm
 from .helpers.sim import Simulate
 from .helpers.helpers import color as c
 import os
@@ -19,8 +20,9 @@ def get_file_lines(fname: str) -> list[str]:
 
 
 class Menu:
-    def __init__(self, fname: str):
+    def __init__(self, fname: str, debug: bool = False):
         self.fname = fname
+        self.debug = debug
         #first, validate file and get into list
         self.file_lines = get_file_lines(fname)
         if not self.file_lines:
@@ -114,8 +116,10 @@ class Menu:
         if choice == 0:
             self.gates, self.graph = process_netlist(self.file_lines)
             print(f"\t{c.OKGREEN}Netlist processed successfully.{c.ENDC}")
-            import json
-            print(json.dumps(self.gates, indent = 2))
+            
+            if self.debug: 
+                import json
+                print(json.dumps(self.gates, indent = 2))
             
             if self.en_feat:
                 from .helpers.helpers import Visualize                
@@ -128,7 +132,7 @@ class Menu:
         elif choice == 1:
             if (self.gates and self.graph):
                 if (not self.fault_list):
-                    self.fault_list = Faults(self.gates, self.graph)
+                    self.fault_list = Faults(self.gates, self.graph, self.debug)
                     
                 self.fault_list.collapse()
                 print(f"\t{c.OKGREEN}Fault collapsing completed successfully.{c.ENDC}")
@@ -143,7 +147,7 @@ class Menu:
             
         elif choice == 3:
             if (self.gates and self.graph and self.fault_list):
-                self.sim = Simulate(self.gates, self.graph, self.fault_list, self.en_feat)
+                self.sim = Simulate(self.gates, self.graph, self.fault_list, self.en_feat, self.debug)
                
                 print(f"\t{c.OKGREEN}Would you like to view the simulation results? ('Y' / 'N'): {c.ENDC}", end="")
                 v_choice = input().strip().lower()
@@ -153,7 +157,12 @@ class Menu:
             else:
                 print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")
         elif choice == 4:
-            pass
+            if (self.gates and self.graph and self.fault_list):
+                print(f"\t{c.OKGREEN}Generating tests using D-Algorithm...{c.ENDC}")
+                d_algo = DAlgorithm(self.gates, self.graph, self.fault_list, self.debug)
+                d_algo.solve()
+            else:
+                print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")            
         elif choice == 5:
             pass
         elif choice == 6:

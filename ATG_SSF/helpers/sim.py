@@ -1,12 +1,12 @@
 from .fault_collapse import Faults
 from .helpers import color, Graph, GateOps
 class Simulate:
-    def __init__(self, gates, graph: Graph, faults: Faults, en_feat):
+    def __init__(self, gates, graph: Graph, faults: Faults, en_feat: bool = False, debug: bool = False):
         self.gates = gates
         self.graph = graph
         self.faults = faults
         self.en_feat = en_feat
-        
+        self.debug = debug
         self.chosen_inps = {}
         self.chosen_faults = {}
         self.sim_vals = {}

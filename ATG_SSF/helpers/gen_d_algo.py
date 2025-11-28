@@ -1,168 +1,192 @@
-from .helpers import color as c
+from .helpers import color
 from .helpers import Graph
 from .helpers import ControllingInversionVals as ci
 from .helpers import GateOps as ops
+from .helpers import DGateOps as dops
 from .fault_collapse import Faults
 from typing import Tuple, Optional
+import json 
 
-class DAlgo_Gen:
-    def __init__(self, gates, graph: Graph, fault: Faults):
-        """
-        Generate test vectors using D-Algorithm
-        """
-        self.d_front = [] #All gates whose output value is currently x but have one or more error signals on their inputs
-        self.j_front = [] #All gates whose output is known, but not implied by inputs
-        self.fault = fault
-        self.gates = gates
+from typing import Dict, List, Set, Optional, Union, NamedTuple
+from typing import Dict, List, Optional, Union
+
+class DAlgorithm:
+    def __init__(self, netlist: Dict[str, Dict], graph, fault_list, debug: bool = False):
+        self.netlist = netlist
         self.graph = graph
-        self.PIs = [k for k, v in gates.items() if v["type"] == "PI"]
-        self.POs = [k for k, v in gates.items() if v["level"] == max(g["level"] for g in gates.values())]
-        
-        print(f"{c.BOLD}{c.HEADER}Select an option for D-Algorithm test generation:{c.ENDC}")
-        print(f"{c.OKCYAN}", end="")
-        print(f"[1] Generate test vector(s) for a specific fault")
-        print(f"[2] Generate test vectors for all faults")
-        print(f"[3] Determine detectable faults for a specific input vector")
-        print(f"{c.ENDC}", end="")
-        
-        choice = -1
-        while choice not in [1, 2, 3]:
-            if choice == 0:
-                print(f"{c.FAIL}{c.BOLD}Invalid choice. Please enter 1, 2, or 3.{c.ENDC}")
-                
-            print(f"{c.HEADER}{c.BOLD}Enter choice (1-3): {c.ENDC}", end="")
-            try:
-                choice = int(input().strip())
-                if choice not in [1, 2, 3]: 
-                    choice = 0
-            except:
-                choice = 0
-        if choice == 1:
-            self.specific_fault()
-        elif choice == 2:
-            self.all_faults()
-        elif choice == 3:
-            self.detectability()
-                
-    def specific_fault(self):
-        self.fault.print_fault_classes(indices=True)
-        print(f"{c.HEADER}{c.BOLD}Enter the index of the fault to generate a test vector for: {c.ENDC}", end="")
-        chosen = None
-        avail = [k for k in self.fault.fault_list.keys()]
-        while not chosen:
-            inp = input().strip()
-            try: 
-                inp = int(inp)
-                chosen = avail[inp]
-                if inp < 0 or inp >= len(avail):
-                    raise IndexError
-            except:
-                print(f"{c.FAIL}{c.BOLD}Invalid input. Please enter a valid fault index.{c.ENDC}", end="")
-                chosen = None
-                
-            else:
-                chosen = avail[int(inp)]
-        
-        chosen_fault = (chosen, self.fault.fault_list[chosen])
-        self.d_algorithm(chosen_fault=chosen_fault)
-        
-    
-    def all_faults(self):
-        # Keyed by tuple of (gate, fault), as a single gate can have multiple displayable faults
-        fault_vectors = {}
-        for gate, faults in self.fault.fault_list.items():
-            for f in faults:
-                chosen_fault = (gate, f)
-                print(f"{c.HEADER}{c.BOLD}Generating test vector for fault s-a-{f} at gate {gate}:{c.ENDC}")
-                fault_vectors[(gate, f)] = self.d_algorithm(chosen_fault=chosen_fault)
-                
-    
-    def detectability(self):
-        print(f"{c.HEADER}{c.BOLD}Enter the input vector: {c.ENDC}", end="")
-        chosen_inps = {}
-        for pi in self.PIs:
-            val = None
-            while val not in ['0', '1']:
-                print(f"{c.HEADER}{c.BOLD}{pi}: {c.ENDC}", end="")
-                val = input().strip()
-                if val not in ['0', '1']:
-                    print(f"{c.FAIL}{c.BOLD}Invalid input. Please enter 0 or 1.{c.ENDC}", end="")
-            chosen_inps[pi] = int(val)
-        self.d_algorithm(chosen_inps=chosen_inps)
-    
-    def d_algorithm(self, *args, **kwargs):
-        """
-        Run a D-algorithm for a fault. 
-        Only runs on a single fault; matching of generated vectors to faults will be handled by callee
-        """
-        chosen_fault = kwargs.get("chosen_fault", (None, None))
-        chosen_inps = kwargs.get("chosen_inps", None)
-        
-        circuit_vals = {gate_name: 'x' for gate_name in self.gates.keys()}
+        self.debug = debug
+        # fault_list: object with .fault_list dict {gate: [0,1]}
+        self.fault_list = [
+            (gate, fault)
+            for gate, faults in fault_list.fault_list.items()   
+            for fault in faults
+        ]
 
+    # --- UTILITY ---
+    def is_PI(self, w): return self.netlist[w]['type'] == 'PI'
+    def is_PO(self, w): return self.netlist[w]['type'] == 'PO'
+    def other_val(self, v):
+        if v==0: return 1
+        if v==1: return 0
+        if v=='D': return "D'"
+        if v=="D'": return 'D'
+        return v
+    def check_DCs(self, gate: str, assignment: dict) -> Tuple[bool | None, str]:
+        """
+        Check if a gate has Dont Care inputs
+        """
+        if self.debug: print(f"{color.BOLD}Check_DCs: Checking gate {gate}{color.ENDC}")
+        inps = self.netlist[gate]['inputs']
         
+        # We don't have anything to work off of - no inputs have been assigned to gate
+        if len([i for i in inps if i == 'X']) == len(inps):
+            if self.debug: print("Check_DCs: All inputs are X - cannot determine DCs")
+            return (None, "")
+        # Don't Cares really only apply to PIs, and we don't want to say a PI is DC if it has fanout
+        if len([i for i in inps if self.is_PI(i)]):
+            pi_gts = [i for i in inps if self.is_PI(i)]
+            for pi in pi_gts:
+                if len(self.graph.get_neighbors(pi)) > 1:
+                    if self.debug: print(f"Check_DCs: PI input {pi} has fanout - cannot be DC")
+                    return (False, "")
         
-        def justify(line, val):
-            """
-            Justify function mimicking algorithm from pg 184 of AM book (ISBN: 0-7803-1062-4)
-            """
-            if line in self.PIs:
-                return 
-            c, i = getattr(ci, self.gates[line]["type"])
-            val_inv = int(val ^ i)
-            if (val_inv == (not c)): 
-                for inp in self.gates[line]["inputs"]:
-                    justify(inp, val_inv)
-            else: 
-                # "Select one input (j) of l"
-                for inp in self.gates[line]["inputs"]:
-                    inp_val = circuit_vals[inp]
-                    if inp_val == 'x':
-                        circuit_vals[inp] = val_inv
-                        justify(inp, val_inv)
-                        break
+        c, i = ci.__dict__.get(self.netlist[gate]['type'], (None, None))
+        if c is None: raise ValueError(f"Unsupported gate type '{self.netlist[gate]['type']}' for DC checking.")
+        cur_assignments = [assignment[inp] for inp in inps]
+        if c in cur_assignments and 'X' in cur_assignments:
+            return (True, [i for i in inps if (assignment[i] == 'X') or (assignment[i] == c)][0])
+        if self.debug: print("Check_DCs: No DCs found")
+        return (False, "")
+            
+            
+            
+
+    # --- FRONTIER COMPUTATION ---
+    def get_D_frontier(self, assignment) -> List[str]:
+        lst = []
+        for gname, gate in self.netlist.items():
+            ins = [assignment[x] for x in gate['inputs']]
+            if (('D' in ins or "D'" in ins) and assignment[gname] == "X"):
+                lst.append(gname)
+        return lst
+
+    def get_J_frontier(self, assignment) -> List[str]:
+        lst = []
+        for gname, gate in self.netlist.items():
+            if assignment[gname] in (0,1,"D","D'") and any(assignment[x] == "X" for x in gate['inputs']):
+                lst.append(gname)
+        return lst
+
+    def error_at_PO(self, assignment) -> bool:
+        return any(self.is_PO(g) and assignment[g] in ("D", "D'") for g in self.netlist)
+
+    # --- MAIN RECURSIVE D-ALGORITHM ---
+    def D_alg(self, assignment: Dict[str, Union[int,str]], depth=0) -> Optional[Dict]:
+        assignment = dict(assignment)  # Copy for recursive call
+        if self.debug: print(f"\n{color.OKBLUE}New DAlg call{color.ENDC}")
+        if self.debug: print(f"Initial assignement at depth {depth}:\n{json.dumps(assignment, indent = 2)}")
+        if not self.Imply_and_check(assignment):
+            if self.debug: print(f"Depth: {depth}, Conflict detected during implication.")
+            return None
+
+        if self.error_at_PO(assignment):
+            # Optionally: verify all signals justified
+            if self.debug: print(f"Depth: {depth}, Error at PO")
+            return assignment
+
+        Dfront = self.get_D_frontier(assignment)
+        if not Dfront:
+            Jfront = self.get_J_frontier(assignment)
+            if not len(Jfront):
+                if self.debug: print(f"Depth: {depth}, J_frontier empty; success")
+                return assignment
+            
+            for G in Jfront:
+                if self.debug: print(f"Depth: {depth}, Jfront: {Jfront}")
+                dc_check, dc_input = self.check_DCs(G, assignment)
+                if dc_check: assignment[dc_input] = "DC"
+
+                untried_inputs = [inp for inp in self.netlist[G]['inputs'] if assignment[inp] == 'X']
+                if not untried_inputs:
+                    continue
+                
+                c, i = ci.__dict__.get(self.netlist[G]['type'], (None, None))
+                for inp in untried_inputs:
+                    # Try assigning non-controlling value to X
+                    assignment[inp] = c
+                    if self.debug: print(f"Depth: {depth}, Trying assignment in jfront loop: {inp} = {c}")
+                    result = self.D_alg(assignment, depth+1)
+                    if result is not None:
+                        return result
                     
-        def propagate(line, err):
-            """
-            Propagate function mimicking algorithm from pg 185 of AM book (ISBN: 0-7803-1062-4)
-            Vs justify, in which 'line' is an output, here 'line' is an input
-            """
-            if line in self.POs:
-                return
-            if line in self.PIs: #Isn't apportioned for in og algorithm- but, in this code, this fn may get PIs. How do we handle?
-                return
-            k = self.graph.get_neighbors(line)
-            c, i = getattr(ci, self.gates[line]["type"])
-            # "For every input j of k other than l"
-            for fanout in k:
-                for inp in self.gates[fanout]["inputs"]:
-                    if inp == line:
-                        continue
-                    inp_val = circuit_vals[inp]
-                    if inp_val == 'x':
-                        justify(inp, not c)
-                propagate(fanout, err ^ i)
-                
-        # Start D-Algorithm
-        # assumedly, below initializes d-frontier?
-        # if imply_and_check() == FAILURE then return FAILURE
+                    # Backtrack this assignment
+                    nc = self.other_val(getattr(ci, self.netlist[G]['type']).c)
+                    assignment[inp] = nc
         
-        if chosen_fault[0] not in self.POs:
-            if not len(self.d_front):
-                return None
-            # select an untried gate from d-front
-            c, i = getattr(ci, self.gates[self.d_front[0]]["type"])
-            
-            #assign !c to every input of G with value x
-            # if d-alg = success then treturn success
-            # repeat until all gates in d-front have been tried
-            
-        #then do j-front
-            
+        # Decision: for each D-frontier, try each X input only ONCE at this depth
+        # (no repeat, so recursion depth is finite)
+        for G in Dfront:
+            if self.debug: print(f"Depth: {depth}, Dfront: {Dfront}")
+            controls = getattr(ci, self.netlist[G]['type'])
+            c = controls.c
+
+            untried_inputs = [inp for inp in self.netlist[G]['inputs'] if assignment[inp] == 'X']
+            if not untried_inputs:
+                if self.debug: print(f"{color.WARNING}Depth: {depth}, all inputs tried, continuing{color.ENDC}")
+                continue
+            for inp in untried_inputs:
+                # Try assigning controlling value to X
+                assignment[inp] = int(not c)
+                if self.debug: print(f"Depth: {depth}, Trying assignment in dfront loop: {inp} = {c}")
+                result = self.D_alg(assignment, depth+1)
+                if result is not None:
+                    if self.debug: print(f"{color.OKGREEN}Depth: {depth}, Success assigning {inp} to {assignment[inp]}!{color.ENDC}")
+                    return result
+                # Backtrack this assignment
+                if self.debug: print(f"{color.WARNING}Depth: {depth}, Failure assigning {inp} to {assignment[inp]}- trying {c}{color.ENDC}")
+                assignment[inp] = c
                 
-            
-                        
-                        
-            
-                
-                
+        
+        return None
+
+    # --- FAULT INJECTION ---
+    def inject_fault(self, assignment: Dict[str, Union[int,str]], wire: str, stuck_val: int):
+        # Activate stuck-at fault as D or D'
+        assignment[wire] = 'D' if stuck_val == 0 else "D'"
+        return assignment
+
+    # --- SIMULATION/IMPLICATION ---
+    def Imply_and_check(self, assignment: Dict[str, Union[int,str]]) -> bool:
+        changed = True
+        while changed:
+            changed = False
+            for g, info in self.netlist.items():
+                if info['type'] in ('PI','PO'): continue
+                ins = [assignment.get(x, "X") for x in info['inputs']]
+                out = assignment.get(g, "X")
+                if out != "X": continue
+                if self.debug: print(f"Imply_and_Check: Simulating {info['type']} gate {g} with inputs {ins}")
+
+                if all(v in (0, 1, 'D', "D'") for v in ins):
+                    try:
+                        func = getattr(dops, info['type'])
+                        assignment[g] = func(ins)
+                        if self.debug: print(f"Imply_and_Check: Assigned {g} = {assignment[g]}")
+                        changed = True
+                    except AttributeError:
+                        raise ValueError(f"Unsupported gate type '{info['type']}' for D-Algorithm simulation.")
+
+        return True
+
+    # --- SOLVE ---
+    def solve(self):
+        pattern_solutions = []
+        for (wire, stuck_val) in self.fault_list:
+            if self.debug: print(f"\n\n\n{color.OKGREEN}Processing fault at {wire} stuck-at-{stuck_val}{color.ENDC}")
+            initial_assignment = {w: 'X' for w in self.netlist}
+            self.inject_fault(initial_assignment, wire, stuck_val)
+            res = self.D_alg(initial_assignment)
+            if res is not None:
+                pattern_solutions.append(res)
+            if self.debug: print(f"Result for {wire} s-a-{stuck_val}: {res}")
+        return pattern_solutions
