@@ -9,10 +9,12 @@ class Simulate:
         self.debug = debug
         self.chosen_inps = {}
         self.chosen_faults = {}
-        self.sim_vals = {}
+        self.sim_vals = {"faulted": {}, "healthy": {}}
         
         self.init_print()
-        self.simulate()
+        self.sim_vals["healthy"] = self.simulate(self.sim_vals["healthy"])
+        if len(self.chosen_faults) > 0:
+            self.sim_vals["faulted"] = self.simulate(self.sim_vals["faulted"], sim_fault=True)
     
     def init_print(self):
         """
@@ -71,31 +73,31 @@ class Simulate:
             if inp in gdata["inputs"]
         ]
     
-    def simulate(self):
+    def simulate(self, sim_vals: dict, sim_fault: bool = False):
         """
         Event-Driven simulation of circuit.
         """        
-        self.sim_vals = {gate_name: 'x' for gate_name in self.gates.keys()}
+        sim_vals = {gate_name: 'x' for gate_name in self.gates.keys()}
         
         # Init PI vals
-        [self.sim_vals.update({pi: self.chosen_inps[pi]}) for pi in self.chosen_inps.keys()]
+        [sim_vals.update({pi: self.chosen_inps[pi]}) for pi in self.chosen_inps.keys()]
         
         # Make sure we assert PI to chosen faults (if any)
-        if len(self.chosen_faults) > 0:
-            for gate in self.sim_vals.keys():
+        if sim_fault:
+            for gate in sim_vals.keys():
                 if self.gates[gate]["type"] == "PI" and gate in self.chosen_faults:
                     fault_val = self.chosen_faults[gate]
                     print(f"{color.WARNING}{color.BOLD}Injecting fault on PI '{gate}': forcing output to {fault_val}{color.ENDC}")
-                    self.sim_vals[gate] = ("fault", fault_val)
+                    sim_vals[gate] = ("fault", fault_val)
         
         gate_list = [gate for gate in self.gates.keys()]
         current = 0 # Start with PI 0
     
-        while 'x' in self.sim_vals.values():
+        while 'x' in sim_vals.values():
             # Make sure we don't over-index
             if current >= len(gate_list):
                 # There are still undetermined values, find next 'x' gate
-                for g, v in self.sim_vals.items():
+                for g, v in sim_vals.items():
                     if v == 'x':
                         current = gate_list.index(g)
                         break
@@ -104,17 +106,17 @@ class Simulate:
             gate = gate_list[current]
             gate_dat = self.gates[gate]
             output = self.graph.get_neighbors(gate)
-            if self.sim_vals[gate] != 'x':
+            if sim_vals[gate] != 'x':
                 # Gate already evaluated, move to next gate
                 current = gate_list.index(output[0]) if output else current + 1
                 continue
             if gate_dat["type"] == "PI":
-                self.sim_vals[gate] = self.chosen_inps[gate]
+                sim_vals[gate] = self.chosen_inps[gate]
                 current = gate_list.index(output[0]) if output else current + 1 # Greedily move through gates
                 continue
             else: 
                 # Get current gate's input gates
-                inputs = {inp: self.sim_vals[inp] for inp in gate_dat["inputs"]}
+                inputs = {inp: sim_vals[inp] for inp in gate_dat["inputs"]}
                 if 'x' in inputs.values():
                     for inp_name, inp_val in inputs.items():
                         if inp_val == 'x':
@@ -129,29 +131,44 @@ class Simulate:
                     
                     if gate_func is None:
                         raise ValueError(f"Unsupported gate type '{gate_dat['type']}' for simulation.")
-                    
-                    self.sim_vals[gate] = gate_func(inputs.values())
-                    
+                    eval_set = []
+                    for g, i in inputs.items():
+                        if isinstance(i, tuple) and i[0] == "fault":
+                            eval_set.append(i[1])
+                        else:
+                            eval_set.append(i)
+                    sim_vals[gate] = gate_func(eval_set)
+                                        
                     # Check if fault is to be injected here
-                    if gate in self.chosen_faults:
+                    if gate in self.chosen_faults and sim_fault:
                         fault_val = self.chosen_faults[gate]
                         print(f"{color.WARNING}{color.BOLD}Injecting fault on gate '{gate}': forcing output to {fault_val}{color.ENDC}")
-                        self.sim_vals[gate] = ("fault", fault_val)
+                        sim_vals[gate] = ("fault", fault_val)
                         
                     current = gate_list.index(output[0]) if output else current + 1 # Greedily move through gates
+        return sim_vals
         
     def print_sim(self):
         """
         Print simulation results
         """
         print(f"\n{color.HEADER}{color.BOLD}Simulation Results:{color.ENDC}\n")
-        print(f"{'Gate':<10} | {'Value':<10}")
-        print(f"{'-'*25}")
-        for gate, val in self.sim_vals.items():
-            if isinstance(val, tuple) and val[0] == "fault":
-                print(f"{color.FAIL}{gate:<10} | {val[1]:<10} (fault injected){color.ENDC}")
-            else:
-                print(f"{gate:<10} | {val:<10}")
+        
+        if len(self.chosen_faults) > 0:
+            print(f"{color.BOLD}{color.UNDERLINE}{'Gate':<10} | {'Healthy':<10} | {'Faulted Circuit':<20}{color.ENDC}")
+            for gate, val in self.sim_vals["faulted"].items():
+                if isinstance(val, tuple) and val[0] == "fault":
+                    print(f"{color.FAIL}{gate:<10} | {self.sim_vals['healthy'][gate]:<10} | {val[1]:<10} (fault injected){color.ENDC}")
+                else:
+                    print(f"{gate:<10} | {self.sim_vals['healthy'][gate]:<10} | {val:<10}")
+        else:
+            print(f"{color.BOLD}{color.UNDERLINE}{'Gate':<10} | {'Value':<10}{color.ENDC}")
+            for gate, val in self.sim_vals["healthy"].items():
+                if isinstance(val, tuple) and val[0] == "fault":
+                    print(f"{color.FAIL}{gate:<10} | {val[1]:<10} (fault injected){color.ENDC}")
+                else:
+                    print(f"{gate:<10} | {val:<10}")
+        
                     
                     
                     

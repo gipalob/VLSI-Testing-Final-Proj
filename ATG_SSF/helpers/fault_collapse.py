@@ -109,10 +109,10 @@ class Faults:
                     print(f"{color.OKGREEN}{gate}{' '*(8-len(gate))}{color.HEADER}{color.BOLD}|{color.ENDC} {', '.join('s-a-' + str(f) for f in faults) if faults else 'None'}")
                 print(f"{color.ENDC}")
                 
-        if kwargs.get("vis", None): 
-            print(f"{color.OKCYAN}{color.BOLD}Would you like to view the fault classes on the graph? (Y/N) {color.ENDC}")
-            choice = input().strip().lower()
-            if choice == 'y':
-                pass
+        # if kwargs.get("vis", None): 
+        #     print(f"{color.OKCYAN}{color.BOLD}Would you like to view the fault classes on the graph? (Y/N) {color.ENDC}")
+        #     choice = input().strip().lower()
+        #     if choice == 'y':
+        #         pass
 
         

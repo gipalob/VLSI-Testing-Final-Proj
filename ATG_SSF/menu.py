@@ -33,6 +33,7 @@ class Menu:
         self.en_feat = False
         self.vis = None
         self.fault_list = None
+        self.d_algo = None
         
     def clear(self):
         # windows
@@ -158,15 +159,15 @@ class Menu:
                 print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")
         elif choice == 4:
             if (self.gates and self.graph and self.fault_list):
-                print(f"\t{c.OKGREEN}Generating tests using D-Algorithm...{c.ENDC}")
-                d_algo = DAlgorithm(self.gates, self.graph, self.fault_list, self.debug)
-                d_algo.solve()
+                self.d_algo = DAlgorithm(self.gates, self.graph, self.fault_list, self.debug)
+                self.d_algo.solve()
+                self.d_algo.refine_solutions()
             else:
                 print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")            
         elif choice == 5:
-            pass
+            print(f"\t{c.FAIL}Not implemented.{c.ENDC}")
         elif choice == 6:
-            pass
+            print(f"\t{c.FAIL}Not implemented.{c.ENDC}")
         elif choice == 7:
             print("Exiting...")
             exit(0)

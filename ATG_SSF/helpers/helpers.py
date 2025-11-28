@@ -14,6 +14,7 @@ class color:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+    ITALIC = '\033[3m'
 
     
 class ControllingInversionVals:
@@ -44,6 +45,10 @@ class GateOps:
 class DGateOps:
     @staticmethod
     def AND(inputs):
+        if 0 in inputs:
+            return 0
+        if 'X' in inputs:
+            return 'X'
         if all(x in (1, 'D') for x in inputs):
             if "D" in inputs:
                 return 'D'
@@ -54,10 +59,6 @@ class DGateOps:
                 return "D'"
             else:
                 return 1
-        if 0 in inputs:
-            return 0
-        if "D'" in inputs:
-            return 0
         return 'X'
     
     @staticmethod
@@ -65,6 +66,8 @@ class DGateOps:
         if 1 in inputs:
             return 1
         if 0 in inputs:
+            if 'X' in inputs:
+                return 'X'
             # All 0/D'
             if all(x in (0, "D'") for x in inputs):
                 if "D'" in inputs:
