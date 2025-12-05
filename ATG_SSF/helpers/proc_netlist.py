@@ -1,6 +1,9 @@
 from typing import Tuple, Dict
 from .helpers import Graph
 import json
+
+# This modular file contains the logic for defining the "gates" and "graph" attributes for the circuit
+
 def decomp_file(file_lines: list[str]):
     """
     Decomposes the netlist file lines into a gate list, with circuit level 
@@ -9,7 +12,8 @@ def decomp_file(file_lines: list[str]):
     instead, we will identify PIs and POs based on graph.
     The one assumption is that each gate line is {Output}, {Gate Type}, {Input1}, {Input2}...
     """
-    # I loooove list comprehensions
+    # Decompose lines in the file using list comprehension
+    # Specifically, reduce each line into gate name, type, and inputs
     decomp_lines = (
         parts
         for line in (
@@ -19,6 +23,7 @@ def decomp_file(file_lines: list[str]):
         )
         if (parts := [part.strip() for part in line.split(' ') if part.strip()]) and len(parts) >= 4
     )
+    # Structure these four pieces of info into a "gate" object
     gates = {
         p[0]: {
             "type": p[1].upper(),
@@ -28,15 +33,16 @@ def decomp_file(file_lines: list[str]):
         for p in decomp_lines
     }
     
-    # Get Primary Inputs
+    # Get Primary Inputs and Primary Outputs
     outps = set(gates.keys())
     inps = set(inp for g in gates.values() for inp in g["inputs"])
     PIs = inps - outps
     POs = outps - inps
     
-    # Update gate list with PIs
+    # Manually set type of PIs to "PI"
     [gates.update({pi: {"type": "PI", "inputs": [], "level": 0}}) for pi in PIs]
     
+    # Define level for each gate, s.t. gates further from input have higher levels
     def level(gate):
         if gates[gate]["level"] is not None:
             return gates[gate]["level"]
@@ -47,15 +53,14 @@ def decomp_file(file_lines: list[str]):
         return gates[gate]["level"]
     [level(gate) for gate in gates]
     
-    # Last step - Make sure POs are highest level
-    max_level = max(g["level"] for g in gates.values()) # This will actually be the PO level
-
+    # Manually set Primary Output gate levels to the max - for ID-ing later
+    max_level = max(g["level"] for g in gates.values())
     [gates[po].update({"level": max_level}) for po in POs]
     
     # Sort first by level, then alphabetically & return
     return dict(sorted(gates.items(), key=lambda item: (item[1]["level"], item[0])))
 
-    
+# Logic for converting "gates" array into a edge list for graphing
 def get_edge_list(gates: Dict[str, dict]) -> list[Tuple[str, str]]:
     """
     Get edge list of graph
@@ -66,8 +71,11 @@ def get_edge_list(gates: Dict[str, dict]) -> list[Tuple[str, str]]:
             edge_list.append((inp, output))
     return edge_list
 
+# High level fn for menu item [0]
 def process_netlist(file_lines: list[str]) -> Tuple[Dict[str, dict], Graph]:
+    # Get gates
     gates = decomp_file(file_lines)
+    # Get edgelist for graph
     edge_list = get_edge_list(gates)
     
     # Get custom-class based graph, as we want to be sure we don't make networkx required ('optional feature')

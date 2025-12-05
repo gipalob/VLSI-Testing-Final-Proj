@@ -12,21 +12,26 @@ from random import randint as rand
 from typing import Dict, List, Set, Optional, Union, NamedTuple
 from typing import Dict, List, Optional, Union
 
+# This modular file contains logic for generating test vectors for each fault in the circuit using the D-Algorithm
+
+
 class DAlgorithm:
     def __init__(self, netlist: Dict[str, Dict], graph, fault_list, debug: bool = False):
         self.netlist = netlist
         self.graph = graph
         self.debug = debug
-        # fault_list: object with .fault_list dict {gate: [0,1]}
+        # fault_list structures existing faults. ['3gat': [0,1]] means '3gat' has unique s-a-0 and s-a-1 faults.
         self.fault_list = [
             (gate, fault)
             for gate, faults in fault_list.fault_list.items()   
             for fault in faults
         ]
+        # Store any working test vector for each fault
         self.solutions = {}
+        # Store refined (with DCs) test vectors for each fault
         self.refined_solns = []
 
-    # --- UTILITY ---
+    # --- UTILITIES ---
     def is_PI(self, w): return self.netlist[w]['type'] == 'PI'
     def is_PO(self, w): return self.netlist[w]['type'] == 'PO'
     def other_val(self, v):
@@ -59,6 +64,8 @@ class DAlgorithm:
 
 
     # --- FRONTIER COMPUTATION ---
+
+    # D-Frontier have "D" or "D'" as an input, and "X" as output
     def get_D_frontier(self, assignment) -> List[str]:
         lst = []
         for gname, gate in self.netlist.items():
@@ -67,6 +74,7 @@ class DAlgorithm:
                 lst.append(gname)
         return lst
 
+    # J-Frontier have "X" inputs and a known output
     def get_J_frontier(self, assignment) -> List[str]:
         lst = []
         for gname, gate in self.netlist.items():
@@ -74,34 +82,41 @@ class DAlgorithm:
                 lst.append(gname)
         return lst
 
+    # Check if we have successfully propagated a fault to PO
     def error_at_PO(self, assignment) -> bool:
         return any(self.is_PO(g) and assignment[g] in ("D", "D'") for g in self.netlist)
 
     # --- MAIN RECURSIVE D-ALGORITHM ---
-    def D_alg(self, assignment: Dict[str, Union[int,str]], depth=0) -> Optional[Dict]:
-        # This is messy. Probably can be optimized; implementing Justify / Propagate functions.
-        # But- it seems to work? So don't want to touch it 
-        assignment = dict(assignment)  # Copy for recursive call
+    def D_alg(self, assignment: Dict[str, Union[int,str]], depth=0) -> Optional[Dict]: 
+        # Copy assignment for current recursion level
+        assignment = dict(assignment)
         if self.debug: print(f"\n{color.OKBLUE}New DAlg call{color.ENDC}")
         if self.debug: print(f"Initial assignement at depth {depth}:\n{json.dumps(assignment, indent = 2)}")
+        # If circuit has conflict, end recursion level
         if not self.Imply_and_check(assignment):
             if self.debug: print(f"Depth: {depth}, Conflict detected during implication.")
             return None
 
+        # If circuit successfully propagates error to PO, return current assignment
         if self.error_at_PO(assignment):
             # Optionally: verify all signals justified
             if self.debug: print(f"Depth: {depth}, Error at PO")
             return assignment
 
+        # Not failure or success - we need to go deeper
+
+        # Source D-Frontiers
         Dfront = self.get_D_frontier(assignment)
-        while len(Dfront): 
+        while len(Dfront):
+            # Loop D-Frontiers, and source the control and inverse values for each 
             for G in Dfront:
                 if self.debug: print(f"Depth: {depth}, Dfront: {Dfront}")
                 c, i = ci.__dict__.get(self.netlist[G]['type'], (None, None))
                 if c == None: raise ValueError(f"Unsupported gate type '{self.netlist[G]['type']}' for D-Algorithm simulation.")
                 
-                
+                # Find options for D-Frontier we haven't explored
                 untried_inputs = [inp for inp in self.netlist[G]['inputs'] if assignment[inp] == 'X']
+                # D-Frontier fully explored - move onto next
                 if not untried_inputs:
                     if self.debug: print(f"{color.WARNING}Depth: {depth}, all inputs tried, continuing{color.ENDC}")
                     continue
@@ -110,33 +125,40 @@ class DAlgorithm:
                     assignment[inp] = int(not c)
                     if self.debug: print(f"Depth: {depth}, Trying assignment in dfront loop: {inp} = {c}")
                     
+                    # Justify value on D-Frontier input in new recursion level
                     result = self.D_alg(assignment, depth+1)
                     if self.debug: print(f"Depth: {depth}, Assigment result: {result}")
+                    # Success!
                     if result is not None:
                         if self.debug: print(f"{color.OKGREEN}Depth: {depth}, Success assigning {inp} to {assignment[inp]}!{color.ENDC}")
                         return result
-                    # Backtrack this assignment
+                    # Failure!
                     if self.debug: print(f"{color.WARNING}Depth: {depth}, Failure assigning {inp} to {assignment[inp]}- trying {c}{color.ENDC}")
                     assignment[inp] = c
                 return self.D_alg(assignment, depth+1)
-            
+            # Check if D-Frontiers are resolved
             Dfront = self.get_D_frontier(assignment)
-                    
+
+        # Source D-Frontiers       
         Jfront = self.get_J_frontier(assignment)
         if not len(Jfront):
             if self.debug: print(f"Depth: {depth}, J_frontier empty; success")
             return self.check_DCs(assignment) # Assert Don't Cares and return
         
+        # Iterate J-Frontiers, experimentally asserting values on inputs
         for G in Jfront:
             if self.debug: print(f"Depth: {depth}, Jfront: {Jfront}")
 
+            # Get untried inputs for J-Frontier
             untried_inputs = [inp for inp in self.netlist[G]['inputs'] if assignment[inp] == 'X']
             if not untried_inputs:
                 continue
             
+            # Get control and inverse values for J-Frontier
             c, i = ci.__dict__.get(self.netlist[G]['type'], (None, None))
             if self.debug: print(f"{color.OKBLUE}C/I for gate {G} ({self.netlist[G]['type']}): {c}/{i}{color.ENDC}")
             if c == None: raise ValueError(f"Unsupported gate type '{self.netlist[G]['type']}' for D-Algorithm simulation.")
+            # Assign value for J-Frontier input
             for inp in untried_inputs:
                 # Try assigning non-controlling value to X
                 if assignment[G] in ('D', "D'") and (assignment[inp] != 'D' or assignment[inp] != "D'"):
@@ -150,18 +172,20 @@ class DAlgorithm:
                 else: 
                     assignment[inp] = c
                 if self.debug: print(f"Depth: {depth}, Trying assignment in jfront loop: {inp} = {assignment[inp]}")
+                # Try circuit with updated assignment
                 result = self.D_alg(assignment, depth+1)
                 if result is not None:
                     return result
                 else: 
                     if self.debug: print(f"Depth: {depth}, Failure assigning {inp} to {assignment[inp]}- trying {c}{color.ENDC}")
-                    # Backtrack this assignment
+                    # Backtrack this assignment when there is failure
                     nc = self.other_val(c)
                     assignment[inp] = nc
                     return self.D_alg(assignment, depth+1)
                 
         return None
 
+    # Method for injecting a target fault - "D" for s-a-0 and "D'" fpr s-a-1
     def inject_fault(self, assignment: Dict[str, Union[int,str]], wire: str, stuck_val: int):
         # Activate stuck-at fault as D or D'
         assignment[wire] = 'D' if stuck_val == 0 else "D'"
@@ -264,35 +288,45 @@ class DAlgorithm:
     # --- SOLVE ---
     def solve(self):
         print(f"\t{color.OKGREEN}Generating tests using D-Algorithm{color.ENDC}", end = "")
+        # Iterate unique faults to generate tests for
         for (wire, stuck_val) in self.fault_list:
             print(f"{color.OKGREEN}{color.BOLD}.{color.ENDC}", end = "")
             
             if self.debug: print(f"\n\n\n{color.OKGREEN}Processing fault at {wire} stuck-at-{stuck_val}{color.ENDC}")
+            # Set entire circuit to unknown, then inject the fault for this iteration
             initial_assignment = {w: 'X' for w in self.netlist}
             self.inject_fault(initial_assignment, wire, stuck_val)
+            # Run recursive D-Algorithm
             res = self.D_alg(initial_assignment)
+            # If test vector found, add it to solutions
             if res is not None:
                 self.solutions[(wire, stuck_val)] = res
                 if self.debug: print(f"Result for {wire} s-a-{stuck_val}: {res}")
+            # If no tests found, say so in terminal
             else:
                 print(f"\n")
                 print(f"{color.FAIL}No test found for {wire} s-a-{stuck_val}{color.ENDC}")
         print(f"\n\t{color.OKGREEN}{color.BOLD}{color.ITALIC}All possible vectors generated!{color.ENDC}")
+        # Return unrefined solutions
         return self.solutions
     
     def refine_solutions(self):
         """
         Refine solutions to just test vectors (PI assignments only)
         """
+        # Source only PI assignments
         for (wire, stuck_val), sol in self.solutions.items():
             pi_assignments = {g: val for g, val in sol.items() if self.is_PI(g)}
             self.refined_solns.append(((wire, stuck_val), pi_assignments))
             
+        # Print disclaimer - TRUE DCs prioritized over ALL DCs
         print(f"\n{color.OKBLUE}{color.BOLD}{color.UNDERLINE}Test Vectors:{color.ENDC}{color.OKBLUE}{color.ITALIC}('DC' indicates a don't care input){color.ENDC}")
         print(f"{color.OKBLUE}{color.ITALIC}There is a risk that not all DCs will be caught- however, the DCs that are caught are true DCs.{color.ENDC}\n")
         print(f"{color.BOLD}{color.OKCYAN}Fault\t| PI Assignments")
+        # Print column labels
         print(f"\t| {'\t| '.join([pi for pi in self.netlist if self.is_PI(pi)])}{color.ENDC}")
         print(f"{'-'*50}")
+        # Print each rows
         for (wire, stuck_val), pi_assignments in self.refined_solns:
             print(f"{color.BOLD}{wire} s-a-{stuck_val}{color.ENDC} | ", end="")
             # Make sure the vector has the opposite value to the stuck-at for PIs with faults 

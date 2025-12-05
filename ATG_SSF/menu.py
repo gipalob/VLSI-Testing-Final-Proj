@@ -5,6 +5,7 @@ from .helpers.sim import Simulate
 from .helpers.helpers import color as c
 import os
 
+# Fn for storing lines initially - not processing, but storing
 def get_file_lines(fname: str) -> list[str]:
     file_lines = []
     try:
@@ -18,23 +19,26 @@ def get_file_lines(fname: str) -> list[str]:
         exit(1)
     return file_lines
 
-
+# Highest level object for the project - one Menu instantiated per program usage.
 class Menu:
     def __init__(self, fname: str, debug: bool = False):
+        # CLI - filepath and debug flag
         self.fname = fname
         self.debug = debug
-        #first, validate file and get into list
+        # Store file lines to be processed later
         self.file_lines = get_file_lines(fname)
         if not self.file_lines:
             print(f"{c.FAIL}File '{fname}' is empty.{c.ENDC}")
             exit(1)
+        # Initialize other attributes to None
         self.gates = None
         self.graph = None
         self.en_feat = False
         self.vis = None
         self.fault_list = None
         self.d_algo = None
-        
+    
+    # Method for wiping terminal
     def clear(self):
         # windows
         if os.name == 'nt':
@@ -44,6 +48,7 @@ class Menu:
             _ = os.system('clear')
 
 
+    # I/O for enabling graphing capabilities
     def en_features(self):
         print(f"{c.OKCYAN}{c.BOLD}Would you like to enable additional features?{c.ENDC} {c.OKGREEN}('Y' / 'N' / 'info'){c.ENDC}{c.OKCYAN}{c.BOLD}: {c.ENDC}", end="")
         choice = input().strip().lower()
@@ -78,7 +83,8 @@ class Menu:
                 print(f"{c.OKGREEN}{c.BOLD}Additional features enabled.{c.ENDC}")
             except ImportError as e:
                 raise ImportError("Required packages for additional features not found. Please pip install -r ./ATG_SSF/requirements.txt.") from e
-        
+
+    # Fn for prompting user to use program once file has been validated     
     def print_menu(self):
         #loop until valid input is given
         choice = -1           
@@ -90,8 +96,6 @@ class Menu:
                 "2": "List fault classes",
                 "3": "Simulate",
                 "4": "Generate tests (D-Algorithm)",
-                "5": "Generate tests (PODEM)",
-                "6": "Generate tests (Boolean Satisfaibility)",
                 "7": "Exit"
             }
             print(f"\n{c.HEADER}{c.BOLD}Main Menu:{c.ENDC}")
@@ -102,9 +106,10 @@ class Menu:
             print(f"{c.BOLD}Selection: {c.ENDC}", end="")
             choice = input().strip()
             
-            #input validation
-            # clear menu after sel made
+            # 50/50 on if we like wiping terminal - no for now
             # self.clear()
+
+            # Validate input as sensible integer
             try:
                 choice = int(choice)
                 assert choice < 8 and choice >= 0
@@ -112,8 +117,7 @@ class Menu:
                 print(f"{c.FAIL}Invalid selection: {choice}{c.ENDC}")
                 choice = -1
         
-        
-        
+        # Process Netlist for Circuit - needed to populate "gates" and "graph"
         if choice == 0:
             self.gates, self.graph = process_netlist(self.file_lines)
             print(f"\t{c.OKGREEN}Netlist processed successfully.{c.ENDC}")
@@ -129,7 +133,7 @@ class Menu:
                 if v_choice == 'y':
                     self.vis = Visualize(self.gates, self.graph.edge_list)
                     self.vis.vis_circuit()
-                        
+        # Minimize Fault List - usable freely after [0] - needed to populate "fault_list"           
         elif choice == 1:
             if (self.gates and self.graph):
                 if (not self.fault_list):
@@ -139,13 +143,14 @@ class Menu:
                 print(f"\t{c.OKGREEN}Fault collapsing completed successfully.{c.ENDC}")
             else:
                 print(f"{c.FAIL}Please process the netlist first (Option 0).{c.ENDC}")
-                
+
+        # Print Minimized Fault List - usable freely after [1]       
         elif choice == 2:
             if self.fault_list:
                 self.fault_list.print_fault_classes(show_undetectable = True, vis = self.vis)
             else:
                 print(f"{c.FAIL}Please perform fault collapsing first (Option 1).{c.ENDC}")
-            
+        # Simulate Circuit - usable freely after [1]
         elif choice == 3:
             if (self.gates and self.graph and self.fault_list):
                 self.sim = Simulate(self.gates, self.graph, self.fault_list, self.en_feat, self.debug)
@@ -157,6 +162,7 @@ class Menu:
                     
             else:
                 print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")
+        # Test Generation (D-Algorithm) - usable freely after [1]
         elif choice == 4:
             if (self.gates and self.graph and self.fault_list):
                 self.d_algo = DAlgorithm(self.gates, self.graph, self.fault_list, self.debug)
@@ -164,13 +170,15 @@ class Menu:
                 self.d_algo.refine_solutions()
             else:
                 print(f"{c.FAIL}Please ensure that the netlist is processed and fault collapsing is performed first (Options 0 and 1).{c.ENDC}")            
+        # Messaging for menu items we did not need to implement as undergraduate students
         elif choice == 5:
-            print(f"\t{c.FAIL}Not implemented.{c.ENDC}")
+            print(f"\t{c.FAIL}Not implemented. We chose to implement the D-Algorithm [4] as undergraduate students.{c.ENDC}")
         elif choice == 6:
-            print(f"\t{c.FAIL}Not implemented.{c.ENDC}")
+            print(f"\t{c.FAIL}Not implemented. We chose to implement the D-Algorithm [4] as undergraduate students.{c.ENDC}")
+        # Exit Program - freely usable at any time
         elif choice == 7:
             print("Exiting...")
             exit(0)
             
-        self.print_menu()  # Return to menu after action
+        self.print_menu()  # Return to menu after each menu item
                 

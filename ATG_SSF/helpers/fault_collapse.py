@@ -3,6 +3,12 @@ from .helpers import ControllingInversionVals as ci
 from typing import Dict, Tuple, List
 
 import json
+
+# This modular file contains the logic for collapsing the list of circuit SSF faults
+# It creates an initial fault list for PIs and POs, and defines a collapse method that does the following:
+#   - Removes functionally equivalent input faults
+#   - Removes dominated input faults
+
 class Faults:
     def __init__(self, gates: Dict[str, dict], graph: Graph, debug: bool = False):
         self.gates = gates
@@ -21,11 +27,14 @@ class Faults:
     def collapse(self):
         # Start at PIs
         if self.debug: print(f"initial fault count: {sum(len(v) for v in self.fault_list.values())}") #debug print
+        # Iterate gates
         for gate in self.gates:
+            # Skip PIs
             gtyp = self.gates[gate]["type"]
             if gtyp == "PI":
                 continue
             
+            # Source control and inverse values for gate type
             inps = self.gates[gate]["inputs"]
             c, i = ci.__dict__.get(gtyp, (None, None))
             
@@ -42,15 +51,17 @@ class Faults:
                         for neighbor in neighbors:
                             if neighbor == gate: continue #skip the current gate
                             
+                            # Source control and inverse values for neighboring fanout gate
                             fanout_gate = self.gates[neighbor]["type"]
                             tmp_c, tmp_i = ci.__dict__.get(fanout_gate, (None, None))
                             if tmp_c is None: raise ValueError(f"Unsupported gate type '{fanout_gate}' for fault collapsing.")
                             
+                            # Conditionally prevent collapsing if fanout is intolerable
                             if (cXORi != (tmp_c ^ tmp_i)):
                                 if self.debug: print(f"Cannot remove fault {cXORi} from line '{inp}' (gate '{gate}') due to fanout to gate '{neighbor}'") # Debug print
                                 neighbor_fanout = True
                                 break
-
+                    # If fanout is tolerable / nonexistant, remove functionally eq fault
                     if not neighbor_fanout:
                         self.fault_list[inp].remove(cXORi)
                         self.undetectable_faults[inp].append(cXORi)
@@ -62,11 +73,14 @@ class Faults:
                 if len(self.graph.get_neighbors(inp)) > 1: # skip if fanout exists
                     continue
                 
+                # If fault still exists
                 if NOTcXORi in self.fault_list[inp]:
+                    # Check next gate in case of PI
                     if self.gates[inp]["type"] == "PI":
                         next_inp = inps.index(inp) + 1
                         if not (next_inp < len(inps) and NOTcXORi in self.fault_list[inps[next_inp]]):
                             continue 
+                    # Remove dominated fault
                     self.fault_list[inp].remove(NOTcXORi)
                     self.undetectable_faults[inp].append(NOTcXORi)
                     
@@ -74,6 +88,7 @@ class Faults:
         if self.debug: print(f"{json.dumps(self.fault_list, indent=4)}")
         if self.debug: print(f"fault count: {sum(len(v) for v in self.fault_list.values())}")
         
+    # CLI Styling for displaying collapsed fault list and (conditionally) undetectable faults
     def print_fault_classes(self, *args, **kwargs):
         """
         Optional kwargs: 

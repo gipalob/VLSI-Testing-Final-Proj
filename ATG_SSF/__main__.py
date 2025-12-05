@@ -1,5 +1,7 @@
 from .menu import Menu
 import sys
+
+# Program entrypoint
 if __name__ == "__main__":
     debug = False
     if len(sys.argv) != 2:

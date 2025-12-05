@@ -1,6 +1,7 @@
 from typing import Dict, Tuple, NamedTuple
 # Hold helper data structures used across the project
 
+# Define coloring constants for CLI
 class color:
     """
     sourced from blender build scripts
@@ -16,7 +17,7 @@ class color:
     UNDERLINE = '\033[4m'
     ITALIC = '\033[3m'
 
-    
+# Define static resource for c/i values for all supported gate types
 class ControllingInversionVals:
     """
     Pre-define controlling values / inversions for gates
@@ -30,7 +31,8 @@ class ControllingInversionVals:
     OR = ci(c=1, i=0)
     NOR = ci(c=1, i=1)
     XOR = ci(c=1, i=1)
-    
+
+# Define operations for processing each gate in terms of simple 0/1
 class GateOps:
     """
     Define operations for gate types
@@ -42,6 +44,7 @@ class GateOps:
     NOR = lambda inputs: int(not any(inputs))
     XOR = lambda inputs: int(sum(inputs) % 2)
     
+# Define static methods for processing each gate in terms of more complex 0/1/'X'/'D'/'~D'
 class DGateOps:
     @staticmethod
     def AND(inputs):
@@ -114,7 +117,7 @@ class DGateOps:
             return 1
         else:
             return 'X' 
-    
+# Define boilerplate methods for graphing capabilities
 class Graph:
     def __init__(self, edge_list: list[tuple]):
         self.graph = {}
@@ -141,9 +144,7 @@ class Graph:
     
     
     
-    
-    
-    
+# Define Boilerplate for displaying graph generated from circuit
 class Visualize:
     def __init__(self, gates: Dict[str, dict], edge_list: list[Tuple[str, str]]):
         self.gates = gates
