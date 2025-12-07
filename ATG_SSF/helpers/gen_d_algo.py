@@ -20,7 +20,7 @@ class DAlgorithm:
         self.netlist = netlist
         self.graph = graph
         self.debug = debug
-        # fault_list structures existing faults. ['3gat': [0,1]] means '3gat' has unique s-a-0 and s-a-1 faults.
+        # fault_list structures existing faults. [('3gat', 0), ('3gat', 1)] means '3gat' has unique s-a-0 and s-a-1 faults.
         self.fault_list = [
             (gate, fault)
             for gate, faults in fault_list.fault_list.items()   
@@ -33,7 +33,7 @@ class DAlgorithm:
 
     # --- UTILITIES ---
     def is_PI(self, w): return self.netlist[w]['type'] == 'PI'
-    def is_PO(self, w): return self.netlist[w]['type'] == 'PO'
+    def is_PO(self, w): return self.netlist[w]['level'] == max(g['level'] for g in self.netlist.values())
     def other_val(self, v):
         if v==0: return 1
         if v==1: return 0
@@ -97,12 +97,6 @@ class DAlgorithm:
             if self.debug: print(f"Depth: {depth}, Conflict detected during implication.")
             return None
 
-        # If circuit successfully propagates error to PO, return current assignment
-        if self.error_at_PO(assignment):
-            # Optionally: verify all signals justified
-            if self.debug: print(f"Depth: {depth}, Error at PO")
-            return assignment
-
         # Not failure or success - we need to go deeper
 
         # Source D-Frontiers
@@ -159,19 +153,37 @@ class DAlgorithm:
             if self.debug: print(f"{color.OKBLUE}C/I for gate {G} ({self.netlist[G]['type']}): {c}/{i}{color.ENDC}")
             if c == None: raise ValueError(f"Unsupported gate type '{self.netlist[G]['type']}' for D-Algorithm simulation.")
             # Assign value for J-Frontier input
+            if i == 1 and i == c:
+                try_val = int(not c) ^ i
+            else:
+                try_val = int(not c)
             for inp in untried_inputs:
                 # Try assigning non-controlling value to X
                 if assignment[G] in ('D', "D'") and (assignment[inp] != 'D' or assignment[inp] != "D'"):
                     stuck_val = 0 if assignment[G] == 'D' else 1
                     if stuck_val == c:
-                        assignment[inp] = int(not c)
+                        assignment[inp] = try_val
                     else:
                         assignment[inp] = c
-                elif assignment[G] == int(not c):
-                    assignment[inp] = int(not c)
+                elif assignment[G] == try_val:
+                    if self.debug: print(f"Depth: {depth}, assignment[{G}] == (not c) ^ i = {try_val}")
+                    assignment[inp] = try_val
                 else: 
+                    if self.debug: print(f"Depth: {depth}, assignment[{G}] == c = {c}")
                     assignment[inp] = c
                 if self.debug: print(f"Depth: {depth}, Trying assignment in jfront loop: {inp} = {assignment[inp]}")
+                
+                # Now that we've changed one input, see if it verifies to intended output so long as no fault on line
+                if assignment[G] not in ('D', "D'"):
+                    func = dops.__dict__.get(self.netlist[G]['type'], None)
+                    if func is None: raise ValueError(f"Unsupported gate type '{self.netlist[G]['type']}' for D-Algorithm simulation.")
+                    ins = [assignment[x] for x in self.netlist[G]['inputs']]
+                    eval_out = func(ins)
+                    if eval_out != assignment[G] and eval_out != 'X':
+                        if self.debug: print(f"{color.WARNING}Depth: {depth}, Gate {G} evaluted output {eval_out} not matching assigned output {assignment[G]}- continuing to see if justifying further inputs fixes.{color.ENDC}")
+                        continue
+                    else: 
+                        if self.debug: print(f"{color.OKGREEN}Depth: {depth}, Gate {G} evaluted output {eval_out} matches assigned output {assignment[G]} for inputs {ins}{color.ENDC}")
                 # Try circuit with updated assignment
                 result = self.D_alg(assignment, depth+1)
                 if result is not None:
@@ -204,6 +216,8 @@ class DAlgorithm:
                 c, i = ci.__dict__.get(info['type'], (None, None))
                 op = dops.__dict__.get(info['type'], None)
                 if c is None or op is None: raise ValueError(f"Unsupported gate type '{info['type']}' for D-Algorithm simulation.")
+                
+                if self.debug: print(f"\tImply_and_Check: Processing gate {g} of type {info['type']} with inputs: {in_names}")
                 
                 if out in ('D', "D'") and all(v == 'X' for v in ins):
                     if self.debug: print(f"{color.WARNING}Imply_and_Check: Gate {g} output is faulted but all inputs are X- checking input implications made by fault{color.ENDC}")
@@ -244,7 +258,8 @@ class DAlgorithm:
                                 assignment[info['inputs'][idx]] = val
                                 changed = True
                                 break
-
+                            
+                # Managed by J-frontier
                 elif out != "X":
                     continue
 
@@ -252,16 +267,31 @@ class DAlgorithm:
                     # First, check if we have faults on both inputs of current gate
                     # Remember, we sim one fault at a time here. So faults on both inputs -> conflict
                     if all(v in ('D', "D'") for v in ins):
+                        if self.debug: print(f"{color.WARNING}Gate {g} has faults on all inputs...{color.ENDC}")
                         # Check which fault line matches gate controlling value 
                         tmp_ins = [1 if v == "D'" else 0 for v in ins]
+                        
                         # Change the fault that is not matching controlling value to non-controlling value to allow fault to propagated 
-                        if tmp_ins.count(c) == 1:
+                        # First, though, check if a faulted inp line is also PI
+                        bad_idx = -1
+                        for idx, nm in enumerate(in_names):
+                            if self.is_PI(nm) and ins[idx] in ('D', "D'"):
+                                bad_idx = idx
+                                break
+                            
+                        if bad_idx != -1: # bad_idx is a faulted PI line- we cant change
+                            tmp_ins[bad_idx] = "D'" if ins[bad_idx] == 1 else "D"
+                        
+                        if tmp_ins.count(c) == 1 and tmp_ins.count(int(not c)) >= 1:
                             change_idx = tmp_ins.index(int(not c))
                             assignment[in_names[change_idx]] = int(not c)
                             changed = True
                         else: 
                             # Randomly assert one of the inputs to non-controlling value until hopefully one works
+                            change_idx = -1
                             change_idx = rand(0, len(ins)-1)
+                            while change_idx == bad_idx:
+                                change_idx = rand(0, len(ins)-1)
                             assignment[in_names[change_idx]] = int(not c)
                             changed = True
                     else: 
@@ -270,19 +300,20 @@ class DAlgorithm:
                         res = func(ins)
                         # Make sure result matches assignment
                         if res != assignment[g] and res != 'X':
-                            if int(not c) == assignment[g] and c in ins:
+                            if self.debug: print(f"\tImply and check: Gate {g} with inputs {ins} gives output {res}, expected {out}")
+                            if int(not c) ^ i == assignment[g] and c in ins:
                                 # Need to set one input to non-controlling value
                                 for idx, val in enumerate(ins):
                                     if val == c:
-                                        assignment[in_names[idx]] = int(not c)
-                                        if self.debug: print(f"{color.OKCYAN}Imply_and_Check: Setting {in_names[idx]} to {int(not c)} to achieve output {assignment[g]} at gate {g}{color.ENDC}")
+                                        assignment[in_names[idx]] = int(not c) ^ i
+                                        if self.debug: print(f"{color.OKCYAN}Imply_and_Check: Setting {in_names[idx]} to {int(not c) ^ i} to achieve output {assignment[g]} at gate {g}{color.ENDC}")
                                         changed = True
                                         break
                         assignment[g] = func(ins)
                         if self.debug: print(f"Imply_and_Check: Assigned {g} = {assignment[g]} with inputs: ")
                         if self.debug: [print(f"\t{x}: {assignment[x]}") for x in info['inputs']]
                         changed = True
-
+        if self.debug: print(f"Imply_and_Check: No conflicts detected.")
         return True
 
     # --- SOLVE ---
@@ -290,8 +321,6 @@ class DAlgorithm:
         print(f"\t{color.OKGREEN}Generating tests using D-Algorithm{color.ENDC}", end = "")
         # Iterate unique faults to generate tests for
         for (wire, stuck_val) in self.fault_list:
-            print(f"{color.OKGREEN}{color.BOLD}.{color.ENDC}", end = "")
-            
             if self.debug: print(f"\n\n\n{color.OKGREEN}Processing fault at {wire} stuck-at-{stuck_val}{color.ENDC}")
             # Set entire circuit to unknown, then inject the fault for this iteration
             initial_assignment = {w: 'X' for w in self.netlist}
@@ -299,14 +328,15 @@ class DAlgorithm:
             # Run recursive D-Algorithm
             res = self.D_alg(initial_assignment)
             # If test vector found, add it to solutions
-            if res is not None:
+            if res is not None and self.error_at_PO(res):
                 self.solutions[(wire, stuck_val)] = res
                 if self.debug: print(f"Result for {wire} s-a-{stuck_val}: {res}")
             # If no tests found, say so in terminal
             else:
                 print(f"\n")
                 print(f"{color.FAIL}No test found for {wire} s-a-{stuck_val}{color.ENDC}")
-        print(f"\n\t{color.OKGREEN}{color.BOLD}{color.ITALIC}All possible vectors generated!{color.ENDC}")
+        if len(self.solutions):
+            print(f"\n\t{color.OKGREEN}{color.BOLD}{color.ITALIC}All possible vectors generated!{color.ENDC}")
         # Return unrefined solutions
         return self.solutions
     
@@ -314,46 +344,51 @@ class DAlgorithm:
         """
         Refine solutions to just test vectors (PI assignments only)
         """
-        # Source only PI assignments
-        for (wire, stuck_val), sol in self.solutions.items():
-            pi_assignments = {g: val for g, val in sol.items() if self.is_PI(g)}
-            self.refined_solns.append(((wire, stuck_val), pi_assignments))
-            
-        # Print disclaimer - TRUE DCs prioritized over ALL DCs
-        print(f"\n{color.OKBLUE}{color.BOLD}{color.UNDERLINE}Test Vectors:{color.ENDC}{color.OKBLUE}{color.ITALIC}('DC' indicates a don't care input){color.ENDC}")
-        print(f"{color.OKBLUE}{color.ITALIC}There is a risk that not all DCs will be caught- however, the DCs that are caught are true DCs.{color.ENDC}\n")
-        print(f"{color.BOLD}{color.OKCYAN}Fault\t| PI Assignments")
-        # Print column labels
-        print(f"\t| {'\t| '.join([pi for pi in self.netlist if self.is_PI(pi)])}{color.ENDC}")
-        print(f"{'-'*50}")
-        # Print each rows
-        for (wire, stuck_val), pi_assignments in self.refined_solns:
-            print(f"{color.BOLD}{wire} s-a-{stuck_val}{color.ENDC} | ", end="")
-            # Make sure the vector has the opposite value to the stuck-at for PIs with faults 
-            pr_assignments = {
-                k: v 
-                if v in (0,1,'DC') 
-                else f"{color.FAIL}{color.BOLD}{1 if v == 'D' else 0}{color.ENDC}"
-                for k, v in pi_assignments.items() 
-            }
-            print("\t| ".join(f"{mod}" for mod in pr_assignments.values()))
-        
+        if len(self.solutions):
+            # Source only PI assignments
+            for (wire, stuck_val), sol in self.solutions.items():
+                pi_assignments = {g: val for g, val in sol.items() if self.is_PI(g)}
+                self.refined_solns.append(((wire, stuck_val), pi_assignments))
+                
+            # Print disclaimer - TRUE DCs prioritized over ALL DCs
+            print(f"\n{color.OKBLUE}{color.BOLD}{color.UNDERLINE}Test Vectors:{color.ENDC}{color.OKBLUE}{color.ITALIC}('DC' indicates a don't care input){color.ENDC}")
+            print(f"{color.OKBLUE}{color.ITALIC}There is a risk that not all DCs will be caught- however, the DCs that are caught are true DCs.{color.ENDC}\n")
+            print(f"{color.BOLD}{color.OKCYAN}Fault\t| PI Assignments")
+            # Print column labels
+            print(f"\t| {'\t| '.join([pi for pi in self.netlist if self.is_PI(pi)])}{color.ENDC}")
+            print(f"{'-'*50}")
+            # Print each rows
+            for (wire, stuck_val), pi_assignments in self.refined_solns:
+                print(f"{color.BOLD}{wire} s-a-{stuck_val}{color.ENDC} | ", end="")
+                # Make sure the vector has the opposite value to the stuck-at for PIs with faults 
+                pr_assignments = {
+                    k: v 
+                    if v in (0,1,'DC') 
+                    else f"{color.FAIL}{color.BOLD}{1 if v == 'D' else 0}{color.ENDC}"
+                    for k, v in pi_assignments.items() 
+                }
+                print("\t| ".join(f"{mod}" for mod in pr_assignments.values()))
+        else: 
+            print(f"\n{color.WARNING}No vectors found for faults.{color.ENDC}")
         return self.refined_solns
     
     def sim_print(self):
         """
         Re-print refined solutions for Simulation
         """
-        print(f"{color.BOLD}{color.OKCYAN}Index\t| Fault\t\t| PI Assignments")
-        print(f"\t\t\t| {'\t| '.join([pi for pi in self.netlist if self.is_PI(pi)])}{color.ENDC}")
-        print(f"{'-'*60}")
-        for idx, ((wire, stuck_val), pi_assignments) in enumerate(self.refined_solns):
-            print(f"{idx}\t| {color.BOLD}{wire} s-a-{stuck_val}{color.ENDC}\t| ", end="")
-            # Make sure the vector has the opposite value to the stuck-at for PIs with faults 
-            pr_assignments = {
-                k: v 
-                if v in (0,1,'DC') 
-                else f"{color.FAIL}{color.BOLD}{1 if v == 'D' else 0}{color.ENDC}"
-                for k, v in pi_assignments.items() 
-            }
-            print("\t| ".join(f"{mod}" for mod in pr_assignments.values()))
+        if len(self.solutions): 
+            print(f"{color.BOLD}{color.OKCYAN}Index\t| Fault\t\t| PI Assignments")
+            print(f"\t\t\t| {'\t| '.join([pi for pi in self.netlist if self.is_PI(pi)])}{color.ENDC}")
+            print(f"{'-'*60}")
+            for idx, ((wire, stuck_val), pi_assignments) in enumerate(self.refined_solns):
+                print(f"{idx}\t| {color.BOLD}{wire} s-a-{stuck_val}{color.ENDC}\t| ", end="")
+                # Make sure the vector has the opposite value to the stuck-at for PIs with faults 
+                pr_assignments = {
+                    k: v 
+                    if v in (0,1,'DC') 
+                    else f"{color.FAIL}{color.BOLD}{1 if v == 'D' else 0}{color.ENDC}"
+                    for k, v in pi_assignments.items() 
+                }
+                print("\t| ".join(f"{mod}" for mod in pr_assignments.values()))
+        else:
+            print(f"\n{color.WARNING}No vectors found for faults.{color.ENDC}")
